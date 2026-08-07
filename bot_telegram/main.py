@@ -26,7 +26,7 @@ try:
 except ImportError:
     # Respaldos por defecto en caso de que alguna variable falte en config.py
     ADMIN_ID = os.getenv("ADMIN_ID", "0")
-    TOKEN = os.getenv("TOKEN", "8656036159:AAEkZ9srVuHecDFFAMUY7mZmzFQ2-lVdxBQ") #[cite: 2]
+    TOKEN = os.getenv("TOKEN", "8656036159:AAEkZ9srVuHecDFFAMUY7mZmzFQ2-lVdxBQ")
     WALLET_ADDRESS = os.getenv("WALLET_ADDRESS", "")
     SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -78,6 +78,9 @@ MONTO_DEP, HASH_DEP, COMPROBANTE_DEP = range(10, 13)
 
 # Estados para la conversación de retiro
 MONTO_RET = range(20, 21)
+
+# Estados para la gestión de aprobación/rechazo de depósitos por parte del admin
+ADMIN_DEP_APROBAR_COMPROBANTE = range(35, 36)
 
 # Estados para la conversación de registro de wallet
 WALLET_DIR, WALLET_PIN = range(50, 52)
@@ -1031,6 +1034,112 @@ async def procesar_deposito_final(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 
+# --- FLUJO ADMIN: GESTIÓN DE DEPÓSITOS (APROBAR / RECHAZAR) ---
+async def admin_deposito_iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if not es_administrador(query.from_user.id):
+        await query.answer("❌ Sin permisos.", show_alert=True)
+        return ConversationHandler.END
+
+    partes = data.split("_")
+    accion = partes[2]  # ok o no
+    tx_id = partes[3]
+
+    context.user_data["admin_dep_tx_id"] = tx_id
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id, monto FROM transacciones WHERE id = ? AND tipo = 'deposito'", (tx_id,))
+    tx = cursor.fetchone()
+    conn.close()
+
+    if not tx:
+        await query.answer("Transacción no encontrada.", show_alert=True)
+        return ConversationHandler.END
+
+    target_user = tx["telegram_id"]
+    monto = tx["monto"]
+
+    if accion == "ok":
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE transacciones SET estado = 'completado' WHERE id = ?", (tx_id,))
+        
+        # Verificar si el usuario tiene referido y aplicar comisión del 5% si aplica
+        cursor.execute("SELECT referido_por FROM usuarios WHERE telegram_id = ?", (target_user,))
+        user_row = cursor.fetchone()
+        if user_row and user_row["referido_por"]:
+            referrer_id = user_row["referido_por"]
+            comision_ref = monto * 0.05
+            cursor.execute(
+                "INSERT INTO transacciones (telegram_id, tipo, monto, estado) VALUES (?, 'comision_referido', ?, 'completado')",
+                (referrer_id, comision_ref)
+            )
+            cursor.execute(
+                "UPDATE usuarios SET ganancias_referidos = ganancias_referidos + ? WHERE telegram_id = ?",
+                (comision_ref, referrer_id)
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=referrer_id,
+                    text=f"🎉 ¡Has recibido una comisión de referido del <b>5% (${comision_ref:.2f} USDT)</b> por el depósito de tu invitado!",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+        conn.commit()
+        conn.close()
+
+        try:
+            if query.message.photo:
+                await query.message.edit_caption(caption=f"✅ Depósito #{tx_id} <b>APROBADO</b> exitosamente.", parse_mode="HTML")
+            else:
+                await query.message.edit_text(text=f"✅ Depósito #{tx_id} <b>APROBADO</b> exitosamente.", parse_mode="HTML")
+        except Exception:
+            pass
+
+        try:
+            await context.bot.send_message(
+                chat_id=target_user,
+                text=f"🎉 ¡Tu depósito por <b>{monto} USDT</b> ha sido aprobado exitosamente! Tu inversión ha comenzado a operar.",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Error notificando aprobación de depósito al usuario: {e}")
+
+        return ConversationHandler.END
+
+    else:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE transacciones SET estado = 'rechazado' WHERE id = ?", (tx_id,))
+        conn.commit()
+        conn.close()
+
+        try:
+            if query.message.photo:
+                await query.message.edit_caption(caption=f"❌ Depósito #{tx_id} <b>RECHAZADO</b>.", parse_mode="HTML")
+            else:
+                await query.message.edit_text(text=f"❌ Depósito #{tx_id} <b>RECHAZADO</b>.", parse_mode="HTML")
+        except Exception:
+            pass
+
+        try:
+            await context.bot.send_message(
+                chat_id=target_user,
+                text=f"❌ Tu solicitud de depósito por <b>{monto} USDT</b> fue rechazada por el administrador.",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Error notificando rechazo de depósito al usuario: {e}")
+
+        return ConversationHandler.END
+
+
 # --- FLUJO DE RETIRO ---
 async def iniciar_retiro_flujo(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -1728,12 +1837,6 @@ async def recibir_id_usuario_admin(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 
-# --- STUB ADMIN DEP CALLBACK EN CASO DE REQUERIRLO ---
-async def admin_dep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("ℹ️ Función de aprobación de depósitos no provista en el fragmento. Por favor asegurate de tener la lógica aquí.", show_alert=True)
-
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -2011,7 +2114,6 @@ def main():
             MONTO_DEP: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_monto_dep)
             ],
-            # IMPORTANTE: Aquí está la corrección que pide la consola para el filtro OR (|)
             HASH_DEP: [
                 MessageHandler(
                     (filters.TEXT | filters.PHOTO) & ~filters.COMMAND, recibir_hash_dep
@@ -2098,12 +2200,10 @@ def main():
 
     # Añadir CallbackQueryHandlers dedicados y de admin antes del bloqueador global
     app.add_handler(CallbackQueryHandler(admin_kyc_callback, pattern="^admin_kyc_"))
+    app.add_handler(CallbackQueryHandler(admin_deposito_iniciar, pattern="^admin_dep_(ok|no)_"))
     app.add_handler(CallbackQueryHandler(ejecutar_contabilidad, pattern="^ejecutar_contabilidad$"))
     app.add_handler(CallbackQueryHandler(exportar_excel, pattern="^exportar_excel$"))
     app.add_handler(CallbackQueryHandler(exportar_conciliacion, pattern="^exportar_conciliacion$"))
-    
-    # Handler para aprobaciones de depósitos en caso de requerirse en este archivo
-    app.add_handler(CallbackQueryHandler(admin_dep_callback, pattern="^admin_dep_"))
 
     # Finalmente, el CallbackQueryHandler que sirve de atrapalotodo (Catch-All) para el menú
     app.add_handler(CallbackQueryHandler(button_handler))
