@@ -26,7 +26,7 @@ try:
 except ImportError:
     # Respaldos por defecto en caso de que alguna variable falte en config.py
     ADMIN_ID = os.getenv("ADMIN_ID", "0")
-    TOKEN = os.getenv("TOKEN", "")
+    TOKEN = os.getenv("TOKEN", "8656036159:AAEkZ9srVuHecDFFAMUY7mZmzFQ2-lVdxBQ") #[cite: 2]
     WALLET_ADDRESS = os.getenv("WALLET_ADDRESS", "")
     SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
@@ -448,29 +448,6 @@ async def recibir_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardRemove(),
         parse_mode="HTML",
     )
-    
-    # --- ALERTA INFORMATIVA AL ADMINISTRADOR ---
-    if ADMIN_ID:
-        try:
-            username_str = f"@{user.username}" if user.username else "Sin alias"
-            admin_alerta_msg = (
-                "🔔 <b>¡NUEVO USUARIO REGISTRADO!</b>\n\n"
-                f"• <b>Nombre completo:</b> {nombre_completo_usuario}\n"
-                f"• <b>Nombre en Telegram:</b> {user.first_name}\n"
-                f"• <b>Usuario TG:</b> {username_str}\n"
-                f"• <b>ID Telegram:</b> <code>{user.id}</code>\n"
-                f"• <b>Correo:</b> {email_usuario}\n"
-                f"• <b>Teléfono:</b> {telefono}\n"
-                f"• <b>Fecha/Hora:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-            await context.bot.send_message(
-                chat_id=int(ADMIN_ID),
-                text=admin_alerta_msg,
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"Error enviando alerta de nuevo usuario al administrador: {e}")
-
     await start(update, context)
     return ConversationHandler.END
 
@@ -997,70 +974,56 @@ async def recibir_hash_dep(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["hash_dep"] = tx_hash
     await update.message.reply_text(
-        "📸 <b>Captura de pantalla</b>\n\nAhora envía la captura de pantalla o foto del comprobante de pago:",
-        parse_mode="HTML"
+        "📸 <b>Captura de pantalla</b>\n\nAhora envía la foto del comprobante:",
+        parse_mode="HTML",
     )
     return COMPROBANTE_DEP
 
 
-async def recibir_comprobante_dep(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def recibir_comprobante_dep(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
     if not update.message.photo:
-        await update.message.reply_text("⚠️ Debes enviar una captura de pantalla / imagen válida como comprobante:")
+        await update.message.reply_text("⚠️ Envía una imagen válida.")
         return COMPROBANTE_DEP
-    
-    file_id = update.message.photo[-1].file_id
+
     tx_hash = context.user_data.get("hash_dep", "N/A")
-    return await procesar_deposito_final(update, context, tx_hash=tx_hash, file_id=file_id)
+    file_id = update.message.photo[-1].file_id
+    return await procesar_deposito_final(update, context, tx_hash, file_id)
 
 
 async def procesar_deposito_final(update: Update, context: ContextTypes.DEFAULT_TYPE, tx_hash: str, file_id: str):
     user = update.effective_user
-    monto = context.user_data.get("monto_dep")
+    monto = context.user_data.get("monto_dep", 0.0)
 
-    deposito_id = registrar_deposito(
-        telegram_id=user.id,
-        monto=monto,
-        hash_transaccion=tx_hash,
-        comprobante_file_id=file_id
-    )
+    tx_id = registrar_deposito(user.id, monto, tx_hash, file_id)
 
     await update.message.reply_text(
-        "✅ <b>¡Depósito registrado con éxito!</b>\n\n"
-        "Tu solicitud ha sido enviada al equipo de administración para su verificación. Te notificaremos en cuanto sea aprobado.",
+        "✅ <b>¡Depósito registrado!</b> En revisión.",
         reply_markup=ReplyKeyboardRemove(),
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
     if ADMIN_ID:
         try:
             admin_msg = (
-                "🔔 <b>NUEVA SOLICITUD DE DEPÓSITO</b>\n\n"
-                f"• Depósito ID: <code>{deposito_id}</code>\n"
+                "🔔 <b>NUEVO DEPÓSITO</b>\n\n"
+                f"• ID: <code>{tx_id}</code>\n"
                 f"• Usuario: {user.first_name} (<code>{user.id}</code>)\n"
                 f"• Monto: <b>{monto} USDT</b>\n"
-                f"• Hash TXID: <code>{tx_hash}</code>"
+                f"• TXID: <code>{tx_hash}</code>"
             )
-            keyboard = [
-                [
-                    InlineKeyboardButton("✅ Aprobar", callback_data=f"admin_dep_ok_{deposito_id}"),
-                    InlineKeyboardButton("❌ Rechazar", callback_data=f"admin_dep_no_{deposito_id}")
-                ]
-            ]
-            if file_id != "N/A":
-                await context.bot.send_photo(
-                    chat_id=int(ADMIN_ID),
-                    photo=file_id,
-                    caption=admin_msg,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="HTML"
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=int(ADMIN_ID),
-                    text=admin_msg,
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="HTML"
-                )
+            keyboard = [[
+                InlineKeyboardButton("✅ Aprobar", callback_data=f"admin_dep_ok_{tx_id}"),
+                InlineKeyboardButton("❌ Rechazar", callback_data=f"admin_dep_no_{tx_id}"),
+            ]]
+            await context.bot.send_photo(
+                chat_id=int(ADMIN_ID),
+                photo=file_id,
+                caption=admin_msg,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML"
+            )
         except Exception as e:
             logger.error(f"Error notificando depósito al admin: {e}")
 
@@ -1069,13 +1032,32 @@ async def procesar_deposito_final(update: Update, context: ContextTypes.DEFAULT_
 
 
 # --- FLUJO DE RETIRO ---
-async def iniciar_retiro_flujo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def iniciar_retiro_flujo(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
 
-    if obtener_configuracion("retiros_activos") == 0 and not es_administrador(user_id):
-        msg_error = "❌ Los retiros están desactivados temporalmente."
+    user_row = obtener_datos_usuario(user_id)
+    if not user_row or not user_row["wallet"]:
+        msg_error = "⚠️ No tienes una <b>Wallet registrada</b>. Por favor, registra tu billetera antes de solicitar un retiro."
+        kb_error = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🧰 Ir a Wallet", callback_data="menu_wallet")],
+            [InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]
+        ])
+        try:
+            if query.message.photo:
+                await query.message.reply_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
+            else:
+                await query.message.edit_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
+        except Exception:
+            await query.message.reply_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
+        return ConversationHandler.END
+
+    dia_actual = datetime.now().weekday()
+    if dia_actual >= 5 and not es_administrador(user_id):
+        msg_error = "⚠️ Retiros habilitados solo de <b>Lunes a Viernes</b>."
         kb_error = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]])
         try:
             if query.message.photo:
@@ -1086,105 +1068,107 @@ async def iniciar_retiro_flujo(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.message.reply_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
         return ConversationHandler.END
 
-    user_row = obtener_datos_usuario(user_id)
-    if not user_row or not user_row["wallet"]:
-        msg = "⚠️ Debes registrar tu dirección de Wallet USDT (BEP-20) antes de solicitar un retiro."
-        kb = [[InlineKeyboardButton("👛 Registrar Wallet", callback_data="menu_wallet")]]
+    if (
+        obtener_configuracion("retiros_activos") == 0
+        and not es_administrador(user_id)
+    ):
+        msg_error = "❌ Retiros desactivados temporalmente."
+        kb_error = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]])
         try:
             if query.message.photo:
-                await query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                await query.message.reply_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
             else:
-                await query.message.edit_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                await query.message.edit_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
         except Exception:
-            await query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            await query.message.reply_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
         return ConversationHandler.END
 
     resumen = obtener_resumen_financiero(user_id)
-    disponible = resumen["ganancias_disponibles"]
+    balance = resumen["balance_disponible"]
 
-    if disponible <= 0:
-        msg = f"⚠️ No tienes saldo disponible para retirar.\nSaldo actual: <b>{disponible:.2f} USDT</b>"
-        kb = [[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]]
+    if balance <= 0:
+        msg_error = "⚠️ No tienes balance disponible para retirar."
+        kb_error = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]])
         try:
             if query.message.photo:
-                await query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                await query.message.reply_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
             else:
-                await query.message.edit_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+                await query.message.edit_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
         except Exception:
-            await query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+            await query.message.reply_text(msg_error, reply_markup=kb_error, parse_mode="HTML")
         return ConversationHandler.END
 
-    texto = (
-        "💵 <b>Solicitud de Retiro</b>\n\n"
-        f"• Saldo disponible: <b>{disponible:.2f} USDT</b>\n"
-        f"• Comisión fija de retiro: <b>{COMISION_RETIRO} USDT</b>\n\n"
-        "Ingresa la cantidad en USDT que deseas retirar:\n"
-        "<i>(/cancelar para anular)</i>"
+    await query.message.reply_text(
+        "📤 <b>Solicitud de Retiro</b>\n\n"
+        f"• Comisión: <b>{COMISION_RETIRO} USDT</b>\n"
+        f"• Disponible: <b>${balance:.2f} USDT</b>\n"
+        f"• Wallet Guardada (BEP-20): <code>{user_row['wallet']}</code>\n\n"
+        "Escribe la cantidad exacta que deseas retirar:\n"
+        "<i>(/cancelar para anular)</i>",
+        parse_mode="HTML",
     )
-    try:
-        if query.message.photo:
-            await query.message.reply_text(texto, parse_mode="HTML")
-        else:
-            await query.message.edit_text(texto, parse_mode="HTML")
-    except Exception:
-        await query.message.reply_text(texto, parse_mode="HTML")
     return MONTO_RET
 
 
 async def recibir_monto_ret(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         monto = float(update.message.text.strip().replace(",", "."))
+        if monto <= 0:
+            raise ValueError
     except ValueError:
-        await update.message.reply_text("⚠️ Ingresa un monto válido en números:")
+        await update.message.reply_text("⚠️ Ingresa una cantidad válida.")
         return MONTO_RET
 
     user = update.effective_user
     resumen = obtener_resumen_financiero(user.id)
-    disponible = resumen["ganancias_disponibles"]
+    balance = resumen["balance_disponible"]
 
-    if monto <= 0:
-        await update.message.reply_text("⚠️ El monto debe ser mayor a 0.")
-        return MONTO_RET
-
-    if monto > disponible:
-        await update.message.reply_text(f"⚠️ El monto supera tus ganancias disponibles ({disponible:.2f} USDT). Inténtalo de nuevo:")
+    if (monto + COMISION_RETIRO) > balance:
+        await update.message.reply_text(
+            f"⚠️ El monto + comisión supera tu balance (${balance:.2f} USDT). Ingresa otro valor:"
+        )
         return MONTO_RET
 
     user_row = obtener_datos_usuario(user.id)
-    wallet = user_row["wallet"]
+    billetera = user_row["wallet"] if user_row and user_row["wallet"] else "N/A"
 
-    retiro_id = registrar_retiro(user.id, monto, COMISION_RETIRO, wallet)
+    tx_id = registrar_retiro(user.id, monto, COMISION_RETIRO, billetera)
 
     await update.message.reply_text(
-        "✅ <b>¡Solicitud de retiro creada con éxito!</b>\n\n"
-        f"• Monto solicitado: {monto} USDT\n"
-        f"• Comisión: {COMISION_RETIRO} USDT\n"
-        f"• Recibirás: <code>{monto - COMISION_RETIRO} USDT</code>\n\n"
-        "El administrador procesará tu pago a la brevedad.",
+        "✅ <b>¡Retiro solicitado!</b> En revisión del administrador.",
         reply_markup=ReplyKeyboardRemove(),
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
     if ADMIN_ID:
         try:
+            nombre_completo = user_row["nombre_completo"] if user_row and user_row["nombre_completo"] else (user.full_name or "N/A")
+            email = user_row["email"] if user_row and user_row["email"] else "N/A"
+            telefono = user_row["telefono"] if user_row and user_row["telefono"] else "N/A"
+            username = f"@{user.username}" if user.username else "N/A"
+
             admin_msg = (
-                "🔔 <b>NUEVA SOLICITUD DE RETIRO</b>\n\n"
-                f"• Retiro ID: <code>{retiro_id}</code>\n"
-                f"• Usuario: {user.first_name} (<code>{user.id}</code>)\n"
-                f"• Monto bruto: <b>{monto} USDT</b>\n"
-                f"• Comisión: {COMISION_RETIRO} USDT\n"
-                f"• Neto a enviar: <b>{monto - COMISION_RETIRO} USDT</b>\n"
-                f"• Wallet destino: <code>{wallet}</code>"
+                "🔔 <b>NUEVO RETIRO SOLICITADO</b>\n\n"
+                f"• ID Transacción: <code>{tx_id}</code>\n"
+                f"• <b>Datos del Usuario:</b>\n"
+                f"  - Nombre: {nombre_completo}\n"
+                f"  - Usuario TG: {username} (<code>{user.id}</code>)\n"
+                f"  - Correo: {email}\n"
+                f"  - Teléfono: {telefono}\n\n"
+                f"• <b>Detalles Financieros:</b>\n"
+                f"  - Monto a retirar: <b>{monto} USDT</b>\n"
+                f"  - Comisión: <b>{COMISION_RETIRO} USDT</b>\n"
+                f"  - Total descontado: <b>{monto + COMISION_RETIRO} USDT</b>\n\n"
+                f"• <b>Wallet de Destino (BNB Smart Chain - BEP-20):</b>\n"
+                f"<code>{billetera}</code>"
             )
-            keyboard = [
-                [
-                    InlineKeyboardButton("✅ Aprobar Retiro", callback_data=f"admin_ret_aprobar_{retiro_id}"),
-                    InlineKeyboardButton("❌ Rechazar Retiro", callback_data=f"admin_ret_rechazar_{retiro_id}")
-                ]
-            ]
+            keyboard = [[
+                InlineKeyboardButton("✅ Aprobar", callback_data=f"admin_ret_ok_{tx_id}"),
+                InlineKeyboardButton("❌ Rechazar", callback_data=f"admin_ret_no_{tx_id}"),
+            ]]
             await context.bot.send_message(
-                chat_id=int(ADMIN_ID),
-                text=admin_msg,
+                chat_id=int(ADMIN_ID), 
+                text=admin_msg, 
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="HTML"
             )
@@ -1195,560 +1179,197 @@ async def recibir_monto_ret(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# --- MENÚS ADICIONALES USUARIO ---
-async def menu_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    resumen = obtener_resumen_financiero(user_id)
-
-    texto = (
-        "📊 <b>Tu Resumen Financiero</b>\n\n"
-        f"• Capital activo invertido: <b>{resumen['capital_activo']:.2f} USDT</b>\n"
-        f"• Ganancias disponibles: <b>{resumen['ganancias_disponibles']:.2f} USDT</b>\n"
-        f"• Ganancias totales generadas: <b>{resumen['ganancias_totales']:.2f} USDT</b>\n"
-        f"• Ganancias de referidos: <b>{resumen['ganancias_referidos']:.2f} USDT</b>\n"
-        f"• Total retirado: <b>{resumen['total_retirado']:.2f} USDT</b>"
-    )
-    keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    try:
-        if query.message.photo:
-            await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-        else:
-            await query.message.edit_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-    except Exception:
-        await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-
-
-async def menu_referidos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    bot_username = context.bot.username
-
-    link_referido = f"https://t.me/{bot_username}?start=ref_{user_id}"
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM usuarios WHERE referido_por = ?", (user_id,))
-    total_referidos = cursor.fetchone()[0]
-    conn.close()
-
-    resumen = obtener_resumen_financiero(user_id)
-
-    texto = (
-        "🤝 <b>Sistema de Referidos</b>\n\n"
-        "Invita a tus amigos y gana comisiones por sus inversiones en la plataforma.\n\n"
-        f"• Total de referidos directos: <b>{total_referidos}</b>\n"
-        f"• Ganancias por referidos: <b>{resumen['ganancias_referidos']:.2f} USDT</b>\n\n"
-        "Tu enlace personal de referido:\n"
-        f"<code>{link_referido}</code>"
-    )
-    keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    try:
-        if query.message.photo:
-            await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-        else:
-            await query.message.edit_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-    except Exception:
-        await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-
-
-async def menu_estado_animo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    keyboard = [
-        [
-            InlineKeyboardButton("😄 Excelente", callback_data="animo_Excelente"),
-            InlineKeyboardButton("🙂 Satisfecho", callback_data="animo_Satisfecho")
-        ],
-        [
-            InlineKeyboardButton("😐 Neutral", callback_data="animo_Neutral"),
-            InlineKeyboardButton("🤔 Con dudas", callback_data="animo_Con_dudas")
-        ],
-        [InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    texto = "⭐ <b>¿Cómo calificas tu experiencia o cuál es tu estado de ánimo actual con la plataforma?</b>"
-
-    try:
-        if query.message.photo:
-            await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-        else:
-            await query.message.edit_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-    except Exception:
-        await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-
-
-async def registrar_estado_animo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("¡Gracias por tu feedback!")
-    user_id = query.from_user.id
-    animo = query.data.replace("animo_", "").replace("_", " ")
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET estado_animo = ? WHERE telegram_id = ?", (animo, user_id))
-    conn.commit()
-    conn.close()
-
-    texto = f"✅ ¡Hemos registrado tu calificación como: <b>{animo}</b>! Agradecemos tu opinión para seguir mejorando."
-    keyboard = [[InlineKeyboardButton("🔙 Volver al Inicio", callback_data="volver_inicio")]]
-    
-    try:
-        if query.message.photo:
-            await query.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-        else:
-            await query.message.edit_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-    except Exception:
-        await query.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-
-
-async def descargar_mi_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    conn = get_db()
-    df_inv = pd.read_sql_query("SELECT * FROM inversiones WHERE telegram_id = ?", conn, params=(user_id,))
-    df_dep = pd.read_sql_query("SELECT * FROM depositos WHERE telegram_id = ?", conn, params=(user_id,))
-    df_ret = pd.read_sql_query("SELECT * FROM retiros WHERE telegram_id = ?", conn, params=(user_id,))
-    conn.close()
-
-    filename = f"estado_cuenta_{user_id}.xlsx"
-    with pd.ExcelWriter(filename, engine="openpyxl") as writer:
-        df_inv.to_excel(writer, sheet_name="Inversiones", index=False)
-        df_dep.to_excel(writer, sheet_name="Depositos", index=False)
-        df_ret.to_excel(writer, sheet_name="Retiros", index=False)
-
-    try:
-        with open(filename, "rb") as doc:
-            await context.bot.send_document(
-                chat_id=user_id,
-                document=doc,
-                caption="📈 <b>Tu Estado de Cuenta Financiero en Excel</b>",
-                parse_mode="HTML"
-            )
-        os.remove(filename)
-        await query.answer("✅ Archivo enviado con éxito al chat.", show_alert=True)
-    except Exception as e:
-        logger.error(f"Error enviando Excel al usuario: {e}")
-        await query.answer("❌ Error al generar el archivo.", show_alert=True)
-
-
-# --- PANEL DE ADMINISTRACIÓN ---
-async def admin_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-
-    if not es_administrador(user_id):
-        await query.answer("❌ Acceso denegado.", show_alert=True)
-        return
-
-    dep_activo = obtener_configuracion("depositos_activos")
-    ret_activo = obtener_configuracion("retiros_activos")
-
-    text_dep = "🟢 Activos" if dep_activo == 1 else "🔴 Desactivados"
-    text_ret = "🟢 Activos" if ret_activo == 1 else "🔴 Desactivados"
-
-    keyboard = [
-        [
-            InlineKeyboardButton(f"Depósitos: {text_dep}", callback_data="admin_toggle_depositos"),
-            InlineKeyboardButton(f"Retiros: {text_ret}", callback_data="admin_toggle_retiros")
-        ],
-        [
-            InlineKeyboardButton("📊 Resumen Global", callback_data="admin_resumen_global"),
-            InlineKeyboardButton("👥 Buscar Usuario", callback_data="admin_buscar_usuario_inicio")
-        ],
-        [
-            InlineKeyboardButton("📢 Difusión Masiva", callback_data="admin_broadcast_inicio"),
-            InlineKeyboardButton("📈 Aplicar Rendimiento Diario", callback_data="admin_ejecutar_rendimiento")
-        ],
-        [InlineKeyboardButton("🔄 Actualizar Panel", callback_data="admin_panel")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    texto = "⚙️ <b>Panel de Control de Administración</b>\n\nSelecciona una opción de gestión:"
-
-    try:
-        if query.message.photo:
-            await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-        else:
-            await query.message.edit_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-    except Exception:
-        await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
-
-
-async def admin_toggle_feature(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if not es_administrador(query.from_user.id):
-        return
-
-    data = query.data
-    if "depositos" in data:
-        actual = obtener_configuracion("depositos_activos")
-        nuevo = 0 if actual == 1 else 1
-        actualizar_configuracion("depositos_activos", nuevo)
-    elif "retiros" in data:
-        actual = obtener_configuracion("retiros_activos")
-        nuevo = 0 if actual == 1 else 1
-        actualizar_configuracion("retiros_activos", nuevo)
-
-    await admin_panel_callback(update, context)
-
-
-async def admin_resumen_global(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if not es_administrador(query.from_user.id):
-        return
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM usuarios")
-    total_usuarios = cursor.fetchone()[0]
-
-    cursor.execute("SELECT SUM(monto) FROM inversiones WHERE estado = 'activa'")
-    capital_total = cursor.fetchone()[0] or 0.0
-
-    cursor.execute("SELECT SUM(monto) FROM depositos WHERE estado = 'aprobado'")
-    depositos_totales = cursor.fetchone()[0] or 0.0
-
-    cursor.execute("SELECT SUM(monto) FROM retiros WHERE estado = 'aprobado'")
-    retiros_totales = cursor.fetchone()[0] or 0.0
-    conn.close()
-
-    texto = (
-        "📈 <b>Resumen Global de la Plataforma</b>\n\n"
-        f"• Total de usuarios registrados: <b>{total_usuarios}</b>\n"
-        f"• Capital activo en inversiones: <b>{capital_total:.2f} USDT</b>\n"
-        f"• Depósitos aprobados acumulados: <b>{depositos_totales:.2f} USDT</b>\n"
-        f"• Retiros aprobados acumulados: <b>{retiros_totales:.2f} USDT</b>"
-    )
-    keyboard = [[InlineKeyboardButton("🔙 Volver al Panel", callback_data="admin_panel")]]
-    
-    try:
-        if query.message.photo:
-            await query.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-        else:
-            await query.message.edit_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-    except Exception:
-        await query.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-
-
-async def admin_ejecutar_rendimiento_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if not es_administrador(query.from_user.id):
-        return
-
-    aplicar_rendimiento_diario()
-    await query.answer("✅ ¡Rendimiento diario aplicado exitosamente a las inversiones activas!", show_alert=True)
-    await admin_panel_callback(update, context)
-
-
-# --- GESTIÓN DE DEPÓSITOS POR ADMIN ---
-async def admin_deposito_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- FLUJO ADMIN: GESTIÓN DE RETIROS (APROBAR / RECHAZAR) ---
+async def admin_retirar_iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
 
     if not es_administrador(query.from_user.id):
-        return
+        await query.answer("❌ Sin permisos.", show_alert=True)
+        return ConversationHandler.END
 
     partes = data.split("_")
-    accion = partes[2]  # ok o no
-    dep_id = partes[3]
+    accion = partes[2]
+    tx_id = partes[3]
 
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT telegram_id, monto FROM depositos WHERE id = ? AND estado = 'pendiente'", (dep_id,))
-    dep = cursor.fetchone()
-
-    if not dep:
-        conn.close()
-        try:
-            if query.message.photo:
-                await query.message.edit_caption(caption="⚠️ Este depósito ya fue procesado o no existe.", parse_mode="HTML")
-            else:
-                await query.message.edit_text(text="⚠️ Este depósito ya fue procesado o no existe.", parse_mode="HTML")
-        except Exception:
-            pass
-        return
-
-    target_user = dep["telegram_id"]
-    monto = dep["monto"]
+    context.user_data["admin_ret_tx_id"] = tx_id
 
     if accion == "ok":
-        cursor.execute("UPDATE depositos SET estado = 'aprobado' WHERE id = ?", (dep_id,))
-        
-        # Crear plan de inversión activa
-        fecha_aprobacion = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute(
-            "INSERT INTO inversiones (telegram_id, monto, ganancias_generadas, tope_ganancia, estado, fecha_inicio) VALUES (?, ?, 0.0, ?, 'activa', ?)",
-            (target_user, monto, monto * 2.0, fecha_aprobacion)
-        )
-        
-        # Procesar comisión de referidos (10%) si tiene referido
-        cursor.execute("SELECT referido_por FROM usuarios WHERE telegram_id = ?", (target_user,))
-        ref_row = cursor.fetchone()
-        if ref_row and ref_row["referido_por"]:
-            referrer_id = ref_row["referido_por"]
-            comision_ref = monto * 0.10
-            cursor.execute("UPDATE usuarios SET ganancias_referidos = ganancias_referidos + ? WHERE telegram_id = ?", (comision_ref, referrer_id))
-            try:
-                await context.bot.send_message(
-                    chat_id=referrer_id,
-                    text=f"🤝 <b>¡Nueva comisión por referido!</b> Has recibido <b>{comision_ref:.2f} USDT</b> (10%) por el depósito de tu referido.",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
-
-        conn.commit()
-        conn.close()
-
-        try:
-            if query.message.photo:
-                await query.message.edit_caption(caption=f"✅ Depósito #{dep_id} <b>APROBADO</b> exitosamente.", parse_mode="HTML")
-            else:
-                await query.message.edit_text(text=f"✅ Depósito #{dep_id} <b>APROBADO</b> exitosamente.", parse_mode="HTML")
-        except Exception:
-            pass
-
-        try:
-            await context.bot.send_message(
-                chat_id=target_user,
-                text=f"✅ ¡Tu depósito de <b>{monto} USDT</b> ha sido <b>APROBADO</b>! Tu plan de inversión se encuentra activo.",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-
-    else:
-        cursor.execute("UPDATE depositos SET estado = 'rechazado' WHERE id = ?", (dep_id,))
-        conn.commit()
-        conn.close()
-
-        try:
-            if query.message.photo:
-                await query.message.edit_caption(caption=f"❌ Depósito #{dep_id} <b>RECHAZADO</b>.", parse_mode="HTML")
-            else:
-                await query.message.edit_text(text=f"❌ Depósito #{dep_id} <b>RECHAZADO</b>.", parse_mode="HTML")
-        except Exception:
-            pass
-
-        try:
-            await context.bot.send_message(
-                chat_id=target_user,
-                text=f"❌ Tu depósito de <b>{monto} USDT</b> ha sido <b>RECHAZADO</b> por el administrador.",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-
-
-# --- GESTIÓN DE RETIROS POR ADMIN ---
-async def admin_retiro_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-
-    if not es_administrador(query.from_user.id):
-        return
-
-    partes = data.split("_")
-    accion = partes[2]  # aprobar o rechazar
-    ret_id = partes[3]
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT telegram_id, monto, comision FROM retiros WHERE id = ? AND estado = 'pendiente'", (ret_id,))
-    ret = cursor.fetchone()
-
-    if not ret:
-        conn.close()
-        await query.edit_message_text("⚠️ Este retiro ya fue procesado o no existe.")
-        return
-
-    target_user = ret["telegram_id"]
-    monto = ret["monto"]
-    comision = ret["comision"]
-    neto = monto - comision
-
-    if accion == "aprobar":
-        context.user_data["admin_ret_id_procesando"] = ret_id
-        context.user_data["admin_ret_target_user"] = target_user
-        context.user_data["admin_ret_monto"] = monto
-        context.user_data["admin_ret_neto"] = neto
-
-        await query.message.reply_text(
-            f"📤 <b>Aprobación de Retiro #{ret_id}</b>\n\n"
-            f"Monto neto a enviar: <b>{neto} USDT</b>\n"
-            "Envía la <b>captura de pantalla del comprobante de transferencia</b> realizado a la wallet del usuario:",
+        await query.message.edit_text(
+            f"📸 <b>Aprobar Retiro #{tx_id}</b>\n\n"
+            "Envía la <b>captura de pantalla del comprobante de pago</b> para enviársela al usuario:\n"
+            "<i>(/cancelar para anular)</i>",
             parse_mode="HTML"
         )
         return ADMIN_RET_APROBAR_COMPROBANTE
     else:
-        context.user_data["admin_ret_id_procesando"] = ret_id
-        context.user_data["admin_ret_target_user"] = target_user
-        context.user_data["admin_ret_monto"] = monto
-
-        await query.message.reply_text(
-            f"❌ <b>Rechazo de Retiro #{ret_id}</b>\n\n"
-            "Escribe el motivo del rechazo para informarlo al usuario:",
+        keyboard = [
+            [InlineKeyboardButton("⚠️ Wallet incorrecta", callback_data="admin_motivo_wallet")],
+            [InlineKeyboardButton("✍️ Otro motivo", callback_data="admin_motivo_otro")],
+            [InlineKeyboardButton("🔙 Cancelar", callback_data="admin_motivo_cancelar")]
+        ]
+        await query.message.edit_text(
+            f"❌ <b>Rechazar Retiro #{tx_id}</b>\n\nSelecciona el motivo del rechazo:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML"
         )
         return ADMIN_RET_OTRO_MOTIVO
 
 
-async def admin_recibir_comprobante_retiro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def admin_retirar_recibir_comprobante(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
-        await update.message.reply_text("⚠️ Debes enviar una captura de pantalla del comprobante de pago:")
+        await update.message.reply_text("⚠️ Por favor, envía una imagen válida como comprobante de pago:")
         return ADMIN_RET_APROBAR_COMPROBANTE
 
     file_id = update.message.photo[-1].file_id
-    ret_id = context.user_data.get("admin_ret_id_procesando")
-    target_user = context.user_data.get("admin_ret_target_user")
-    monto = context.user_data.get("admin_ret_monto")
-    neto = context.user_data.get("admin_ret_neto")
+    tx_id = context.user_data.get("admin_ret_tx_id")
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("UPDATE retiros SET estado = 'aprobado', comprobante_file_id = ? WHERE id = ?", (file_id, ret_id))
+    cursor.execute("SELECT telegram_id, monto FROM transacciones WHERE id = ? AND tipo = 'retiro'", (tx_id,))
+    tx = cursor.fetchone()
+
+    if not tx:
+        conn.close()
+        await update.message.reply_text("⚠️ Transacción no encontrada.")
+        return ConversationHandler.END
+
+    target_user = tx["telegram_id"]
+    monto = tx["monto"]
+
+    cursor.execute("UPDATE transacciones SET estado = 'completado' WHERE id = ?", (tx_id,))
     conn.commit()
     conn.close()
 
-    await update.message.reply_text(f"✅ Retiro #{ret_id} marcado como aprobado y comprobante enviado al usuario.", parse_mode="HTML")
+    await update.message.reply_text(f"✅ Retiro #{tx_id} <b>APROBADO</b> y comprobante enviado al usuario.", parse_mode="HTML")
 
     try:
         await context.bot.send_photo(
             chat_id=target_user,
             photo=file_id,
-            caption=(
-                "✅ <b>¡Tu retiro ha sido APROBADO y PAGADO!</b> 🎉\n\n"
-                f"• Monto bruto: {monto} USDT\n"
-                f"• Neto transferido: <b>{neto} USDT</b>\n\n"
-                "Adjuntamos el comprobante de la transacción."
-            ),
+            caption=f"🎉 ¡Tu retiro por <b>{monto} USDT</b> ha sido aprobado y procesado exitosamente! Aquí tienes el comprobante de pago:",
             parse_mode="HTML"
         )
     except Exception as e:
-        logger.error(f"Error enviando comprobante de retiro al usuario: {e}")
+        logger.error(f"Error enviando comprobante al usuario: {e}")
 
-    await start(update, context)
     return ConversationHandler.END
 
 
-async def admin_recibir_motivo_rechazo_retiro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    motivo = update.message.text.strip()
-    ret_id = context.user_data.get("admin_ret_id_procesando")
-    target_user = context.user_data.get("admin_ret_target_user")
-    monto = context.user_data.get("admin_ret_monto")
+async def admin_retirar_motivo_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    tx_id = context.user_data.get("admin_ret_tx_id")
+
+    if data == "admin_motivo_cancelar":
+        await query.message.edit_text("❌ Operación de rechazo cancelada.")
+        return ConversationHandler.END
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("UPDATE retiros SET estado = 'rechazado' WHERE id = ?", (ret_id,))
-    
-    # Devolver los fondos a ganancias disponibles del usuario
-    cursor.execute("UPDATE inversiones SET ganancias_generadas = ganancias_generadas + ? WHERE telegram_id = ? AND estado = 'activa' LIMIT 1", (monto, target_user))
+    cursor.execute("SELECT telegram_id, monto FROM transacciones WHERE id = ? AND tipo = 'retiro'", (tx_id,))
+    tx = cursor.fetchone()
+
+    if not tx:
+        conn.close()
+        await query.answer("Transacción no encontrada.", show_alert=True)
+        return ConversationHandler.END
+
+    target_user = tx["telegram_id"]
+    monto = tx["monto"]
+
+    if data == "admin_motivo_wallet":
+        cursor.execute("UPDATE transacciones SET estado = 'rechazado' WHERE id = ?", (tx_id,))
+        conn.commit()
+        conn.close()
+
+        await query.message.edit_text(f"❌ Retiro #{tx_id} <b>RECHAZADO</b> por motivo: <i>Wallet incorrecta</i>.", parse_mode="HTML")
+        try:
+            await context.bot.send_message(
+                chat_id=target_user,
+                text=f"❌ Tu solicitud de retiro por <b>{monto} USDT</b> fue rechazada.\nMotivo: <b>Wallet incorrecta</b>.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        return ConversationHandler.END
+
+    elif data == "admin_motivo_otro":
+        await query.message.edit_text(
+            "✍️ Ingresa por favor el motivo detallado del rechazo para notificar al usuario:\n"
+            "<i>(/cancelar para anular)</i>",
+            parse_mode="HTML"
+        )
+        return ADMIN_RET_OTRO_MOTIVO
+
+
+async def admin_retirar_recibir_motivo_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    motivo_texto = update.message.text.strip()
+    if len(motivo_texto) < 3:
+        await update.message.reply_text("⚠️ Ingresa un motivo válido:")
+        return ADMIN_RET_OTRO_MOTIVO
+
+    tx_id = context.user_data.get("admin_ret_tx_id")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id, monto FROM transacciones WHERE id = ? AND tipo = 'retiro'", (tx_id,))
+    tx = cursor.fetchone()
+
+    if not tx:
+        conn.close()
+        await update.message.reply_text("⚠️ Transacción no encontrada.")
+        return ConversationHandler.END
+
+    target_user = tx["telegram_id"]
+    monto = tx["monto"]
+
+    cursor.execute("UPDATE transacciones SET estado = 'rechazado' WHERE id = ?", (tx_id,))
     conn.commit()
     conn.close()
 
-    await update.message.reply_text(f"❌ Retiro #{ret_id} rechazado y fondos devueltos al usuario.", parse_mode="HTML")
+    await update.message.reply_text(f"❌ Retiro #{tx_id} <b>RECHAZADO</b>. Motivo enviado al usuario.", parse_mode="HTML")
 
     try:
         await context.bot.send_message(
             chat_id=target_user,
-            text=(
-                f"❌ <b>Tu solicitud de retiro de {monto} USDT ha sido RECHAZADA.</b>\n\n"
-                f"• Motivo: {motivo}\n\n"
-                "Tus fondos han sido devueltos a tu balance disponible."
-            ),
-            parse_mode="HTML"
+            text=f"❌ Tu solicitud de retiro por <b>{monto} USDT</b> fue rechazada.\nMotivo: <b>{motivo_texto}</b>"
         )
-    except Exception as e:
-        logger.error(f"Error notificando rechazo de retiro al usuario: {e}")
+    except Exception:
+        pass
 
-    await start(update, context)
     return ConversationHandler.END
 
 
-# --- BÚSQUEDA DE USUARIO POR ADMIN ---
-async def admin_buscar_usuario_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- FLUJO ADMIN: DIFUSIÓN MASIVA CON MULTIMEDIA ---
+async def iniciar_broadcast_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
     if not es_administrador(query.from_user.id):
-        return
+        await query.answer("❌ Sin permisos.", show_alert=True)
+        return ConversationHandler.END
 
-    await query.message.reply_text(
-        "🔍 <b>Búsqueda de Usuario</b>\n\nIngresa el <b>ID de Telegram</b> o el <b>Nombre de Usuario (@username)</b> del cliente que deseas consultar:",
-        parse_mode="HTML"
+    texto = (
+        "📢 <b>Difusión de Mensaje Masivo con Multimedia</b>\n\n"
+        "Envía el mensaje que deseas transmitir a <b>todos los usuarios registrados</b> (puede incluir texto, foto, video, documento, etc.):\n\n"
+        "<i>(/cancelar para anular)</i>"
     )
-    return BUSCAR_USUARIO_ADMIN
-
-
-async def admin_recibir_busqueda_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    texto_busqueda = update.message.text.strip().replace("@", "")
-    
-    conn = get_db()
-    cursor = conn.cursor()
-    if texto_busqueda.isdigit():
-        cursor.execute("SELECT * FROM usuarios WHERE telegram_id = ?", (int(texto_busqueda),))
-    else:
-        cursor.execute("SELECT * FROM usuarios WHERE username LIKE ?", (f"%{texto_busqueda}%",))
-    
-    user_row = cursor.fetchone()
-    conn.close()
-
-    if not user_row:
-        await update.message.reply_text("⚠️ No se encontró ningún usuario con ese criterio. Inténtalo de nuevo o /cancelar:")
-        return BUSCAR_USUARIO_ADMIN
-
-    u_id = user_row["telegram_id"]
-    resumen = obtener_resumen_financiero(u_id)
-
-    info_msg = (
-        "👤 <b>INFORMACIÓN DEL USUARIO</b>\n\n"
-        f"• Nombre completo: {user_row['nombre_completo']}\n"
-        f"• Telegram ID: <code>{u_id}</code>\n"
-        f"• Username: @{user_row['username']}\n"
-        f"• Correo: {user_row['email']}\n"
-        f"• Teléfono: {user_row['telefono']}\n"
-        f"• Wallet: <code>{user_row['wallet']}</code>\n"
-        f"• Estado de ánimo: {user_row['estado_animo'] or 'No registrado'}\n\n"
-        f"📊 <b>Balances:</b>\n"
-        f"• Capital activo: {resumen['capital_activo']:.2f} USDT\n"
-        f"• Ganancias disponibles: {resumen['ganancias_disponibles']:.2f} USDT\n"
-        f"• Ganancias referidos: {resumen['ganancias_referidos']:.2f} USDT\n"
-        f"• Total retirado: {resumen['total_retirado']:.2f} USDT"
-    )
-    await update.message.reply_text(info_msg, parse_mode="HTML")
-    await start(update, context)
-    return ConversationHandler.END
-
-
-# --- DIFUSIÓN MASIVA (BROADCAST) ---
-async def admin_broadcast_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if not es_administrador(query.from_user.id):
-        return
-
-    await query.message.reply_text(
-        "📢 <b>Difusión Masiva (Broadcast)</b>\n\nEnvía el mensaje (texto, foto o anuncio) que deseas difundir a <b>todos los usuarios registrados</b> en el bot:\n\n<i>(/cancelar para anular)</i>",
-        parse_mode="HTML"
-    )
+    try:
+        if query.message.photo:
+            await query.message.reply_text(texto, parse_mode="HTML")
+        else:
+            await query.message.edit_text(texto, parse_mode="HTML")
+    except Exception:
+        await query.message.reply_text(texto, parse_mode="HTML")
     return ADMIN_BROADCAST
 
 
-async def admin_ejecutar_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not es_administrador(update.effective_user.id):
+async def procesar_broadcast_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not es_administrador(user.id):
         return ConversationHandler.END
 
     conn = get_db()
@@ -1760,178 +1381,735 @@ async def admin_ejecutar_broadcast(update: Update, context: ContextTypes.DEFAULT
     enviados = 0
     fallidos = 0
 
+    msg = update.message
     for u in usuarios:
-        chat_id = u["telegram_id"]
+        target_id = u["telegram_id"]
         try:
-            if update.message.photo:
-                photo_id = update.message.photo[-1].file_id
-                caption = update.message.caption or ""
-                await context.bot.send_photo(chat_id=chat_id, photo=photo_id, caption=caption, parse_mode="HTML")
-            else:
-                texto = update.message.text_html
-                await context.bot.send_message(chat_id=chat_id, text=texto, parse_mode="HTML")
+            await context.bot.copy_message(
+                chat_id=target_id,
+                from_chat_id=msg.chat_id,
+                message_id=msg.message_id
+            )
             enviados += 1
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error enviando broadcast a {target_id}: {e}")
             fallidos += 1
 
     await update.message.reply_text(
-        f"📢 <b>Difusión completada</b>\n\n"
+        f"✅ <b>Difusión completada</b>\n\n"
         f"• Enviados exitosamente: {enviados}\n"
-        f"• Fallidos / Bloqueados: {fallidos}",
+        f"• Fallidos: {fallidos}",
         parse_mode="HTML"
     )
     await start(update, context)
     return ConversationHandler.END
 
 
-# --- CANCELAR Y VOLVER ---
-async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancelar_operacion(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
     await update.message.reply_text(
-        "❌ Operación cancelada.", reply_markup=ReplyKeyboardRemove()
+        "❌ Operación cancelada.",
+        reply_markup=ReplyKeyboardRemove(),
     )
+    return ConversationHandler.END
+
+
+# --- TAREA AUTOMÁTICA DE CONTABILIDAD ---
+async def contabilidad_diaria_job(context: ContextTypes.DEFAULT_TYPE):
+    nyse_tz = pytz.timezone('America/New_York')
+    ahora = datetime.now(nyse_tz)
+    
+    if ahora.weekday() < 5:
+        try:
+            aplicar_rendimiento_diario(porcentaje_diario=0.5)
+            logger.info(f"✅ Contabilidad automática ejecutada: {ahora.strftime('%Y-%m-%d')}")
+            
+            if ADMIN_ID:
+                await context.bot.send_message(
+                    chat_id=int(ADMIN_ID),
+                    text="✅ <b>Contabilidad Automática:</b> Los rendimientos diarios (0.5%) han sido aplicados con éxito.",
+                    parse_mode="HTML"
+                )
+        except Exception as e:
+            logger.error(f"Error ejecutando contabilidad automática: {e}")
+    else:
+        logger.info(f"Fin de semana detectado ({ahora.strftime('%A')}). No se aplican rendimientos.")
+
+
+# --- EJECUTAR CONTABILIDAD MANUAL ---
+async def ejecutar_contabilidad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        query = update.callback_query
+        user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        await query.answer()
+    else:
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+    if not es_administrador(user_id):
+        if update.callback_query:
+            await query.answer("❌ Sin autorización.", show_alert=True)
+        else:
+            await update.message.reply_text("❌ No tienes permisos de administrador.")
+        return
+        
+    nyse_tz = pytz.timezone('America/New_York')
+    ahora = datetime.now(nyse_tz)
+    
+    advertencia = ""
+    if ahora.weekday() >= 5:
+        advertencia = "\n⚠️ <i>Nota: Se ha ejecutado manualmente durante un fin de semana.</i>"
+
+    try:
+        aplicar_rendimiento_diario(porcentaje_diario=0.5)
+        texto = f"✅ <b>Contabilidad ejecutada con éxito (0.5%).</b> Se han repartido los rendimientos diarios a las inversiones activas.{advertencia}"
+    except Exception as e:
+        logger.error(f"Error ejecutando contabilidad: {e}")
+        texto = f"❌ Error al ejecutar contabilidad: {e}"
+
+    if update.callback_query:
+        await context.bot.send_message(chat_id=chat_id, text=texto, parse_mode="HTML")
+    else:
+        await update.message.reply_text(texto, parse_mode="HTML")
+
+
+# --- EXPORTAR EXCEL FINANCIERO (GLOBAL) ---
+async def exportar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        query = update.callback_query
+        user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        await query.answer()
+    else:
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+    if not es_administrador(user_id):
+        if update.callback_query:
+            await query.answer("❌ Sin autorización.", show_alert=True)
+        else:
+            await update.message.reply_text("❌ No tienes permisos de administrador.")
+        return
+
+    conn = get_db()
+    
+    query_sql = """
+        SELECT 
+            u.telegram_id AS 'ID Telegram',
+            COALESCE(u.nombre_completo, u.first_name, 'Sin Nombre') AS 'Nombre',
+            COALESCE(u.username, 'N/A') AS 'Usuario de Telegram',
+            COALESCE(u.email, 'N/A') AS 'Correo',
+            COALESCE(u.telefono, 'N/A') AS 'Telefono',
+            COALESCE(u.wallet, 'N/A') AS 'Wallet BEP-20',
+            COALESCE(u.estado_animo, 'No definido') AS 'Estado de Ánimo',
+            COALESCE(u.ganancias_referidos, 0.0) AS 'Ganancias por Comisiones',
+            COALESCE(i.monto_inicial, 0.0) AS 'Capital Activos',
+            CASE WHEN i.estado = 'vencido' THEN 1 ELSE 0 END AS 'Planes vencidos',
+            COALESCE(i.ganancias_acumuladas, 0.0) AS 'Ganancia realizadas por plan',
+            COALESCE(i.tope_ganancia, 0.0) AS 'Tope de ganancia por plan',
+            COALESCE(i.tope_ganancia - i.ganancias_acumuladas, 0.0) AS 'Pendiente de ganar por plan',
+            COALESCE((
+                SELECT SUM(t.monto) 
+                FROM transacciones t 
+                WHERE t.telegram_id = u.telegram_id AND t.tipo = 'retiro' AND t.estado = 'completado'
+            ), 0.0) AS 'Retiros hechos total',
+            COALESCE(i.estado, 'Sin Inversión') AS 'Estado de inversión',
+            COALESCE(i.fecha_activacion, 'N/A') AS 'Fecha de activación de cada plan'
+        FROM usuarios u
+        LEFT JOIN inversiones i ON u.telegram_id = i.telegram_id
+    """
+    
+    try:
+        df = pd.read_sql_query(query_sql, conn)
+    except Exception as e:
+        logger.error(f"Error leyendo datos para Excel Global: {e}")
+        df = pd.DataFrame()
+    finally:
+        conn.close()
+
+    archivo_excel = "Reporte_Financiero_Global.xlsx"
+    df.to_excel(archivo_excel, index=False, engine='openpyxl')
+
+    try:
+        with open(archivo_excel, "rb") as doc:
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=doc,
+                filename="Reporte_Financiero_Global.xlsx",
+                caption="📊 <b>Reporte Financiero Global</b>\nListado completo desglosado por plan.",
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        logger.error(f"Error enviando documento Excel Global: {e}")
+    
+    if os.path.exists(archivo_excel):
+        os.remove(archivo_excel)
+
+
+# --- EXPORTAR REPORTE DE CONCILIACIÓN ---
+async def exportar_conciliacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        query = update.callback_query
+        user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        await query.answer()
+    else:
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+    if not es_administrador(user_id):
+        if update.callback_query:
+            await query.answer("❌ Sin autorización.", show_alert=True)
+        else:
+            await update.message.reply_text("❌ No tienes permisos de administrador.")
+        return
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        # 1. Inversión total (Suma del monto inicial de todas las inversiones registradas)
+        cursor.execute("SELECT COALESCE(SUM(monto_inicial), 0.0) FROM inversiones")
+        inversion_total = cursor.fetchone()[0]
+
+        # 2. Comisiones pagadas totales (Comisiones de referidos pagadas + comisiones de retiros)
+        cursor.execute("SELECT COALESCE(SUM(monto), 0.0) FROM transacciones WHERE tipo = 'comision_referido' AND estado = 'completado'")
+        comisiones_referidos = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COALESCE(SUM(comision), 0.0) FROM transacciones WHERE tipo = 'retiro' AND estado = 'completado'")
+        comisiones_retiros = cursor.fetchone()[0]
+
+        comisiones_pagadas_totales = comisiones_referidos + comisiones_retiros
+
+        # 3. Saldo por pagar (Suma del pendiente por ganar en planes activos: tope_ganancia - ganancias_acumuladas)
+        cursor.execute("SELECT COALESCE(SUM(tope_ganancia - ganancias_acumuladas), 0.0) FROM inversiones WHERE estado = 'activa'")
+        saldo_por_pagar = cursor.fetchone()[0]
+
+        data = {
+            "Concepto de Conciliación": [
+                "Inversión Total",
+                "Comisiones Pagadas Totales",
+                "Saldo por Pagar (Pendiente en Planes Activos)"
+            ],
+            "Monto Total (USDT)": [
+                inversion_total,
+                comisiones_pagadas_totales,
+                saldo_por_pagar
+            ]
+        }
+        df = pd.DataFrame(data)
+
+    except Exception as e:
+        logger.error(f"Error generando datos de conciliación: {e}")
+        df = pd.DataFrame()
+    finally:
+        conn.close()
+
+    archivo_excel = "Reporte_Conciliacion.xlsx"
+    df.to_excel(archivo_excel, index=False, engine='openpyxl')
+
+    try:
+        with open(archivo_excel, "rb") as doc:
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=doc,
+                filename="Reporte_Conciliacion.xlsx",
+                caption=(
+                    "📊 <b>Reporte de Conciliación Financiera</b>\n\n"
+                    f"• <b>Inversión Total:</b> ${inversion_total:,.2f} USDT\n"
+                    f"• <b>Comisiones Pagadas Totales:</b> ${comisiones_pagadas_totales:,.2f} USDT\n"
+                    f"• <b>Saldo por Pagar:</b> ${saldo_por_pagar:,.2f} USDT"
+                ),
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        logger.error(f"Error enviando documento Excel de Conciliación: {e}")
+    
+    if os.path.exists(archivo_excel):
+        os.remove(archivo_excel)
+
+
+# --- GENERAR Y ENVIAR EXCEL DE UN USUARIO ESPECÍFICO ---
+async def generar_excel_usuario(chat_id, target_user_id, context):
+    conn = get_db()
+    
+    query_sql = """
+        SELECT 
+            u.telegram_id AS 'ID Telegram',
+            COALESCE(u.nombre_completo, u.first_name, 'Sin Nombre') AS 'Nombre',
+            COALESCE(u.username, 'N/A') AS 'Usuario de Telegram',
+            COALESCE(u.email, 'N/A') AS 'Correo',
+            COALESCE(u.telefono, 'N/A') AS 'Telefono',
+            COALESCE(u.wallet, 'N/A') AS 'Wallet BEP-20',
+            COALESCE(u.estado_animo, 'No definido') AS 'Estado de Ánimo',
+            COALESCE(u.ganancias_referidos, 0.0) AS 'Ganancias por Comisiones',
+            COALESCE(i.monto_inicial, 0.0) AS 'Capital Activos',
+            CASE WHEN i.estado = 'vencido' THEN 1 ELSE 0 END AS 'Planes vencidos',
+            COALESCE(i.ganancias_acumuladas, 0.0) AS 'Ganancia realizadas por plan',
+            COALESCE(i.tope_ganancia, 0.0) AS 'Tope de ganancia por plan',
+            COALESCE(i.tope_ganancia - i.ganancias_acumuladas, 0.0) AS 'Pendiente de ganar por plan',
+            COALESCE((
+                SELECT SUM(t.monto) 
+                FROM transacciones t 
+                WHERE t.telegram_id = u.telegram_id AND t.tipo = 'retiro' AND t.estado = 'completado'
+            ), 0.0) AS 'Retiros hechos total',
+            COALESCE(i.estado, 'Sin Inversión') AS 'Estado de inversión',
+            COALESCE(i.fecha_activacion, 'N/A') AS 'Fecha de activación de cada plan'
+        FROM usuarios u
+        LEFT JOIN inversiones i ON u.telegram_id = i.telegram_id
+        WHERE u.telegram_id = ?
+    """
+    
+    try:
+        df = pd.read_sql_query(query_sql, conn, params=(target_user_id,))
+    except Exception as e:
+        logger.error(f"Error leyendo datos de usuario para Excel: {e}")
+        df = pd.DataFrame()
+    finally:
+        conn.close()
+
+    if df.empty:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ No se encontraron datos económicos para el ID de usuario especificado o el usuario no está registrado.",
+            parse_mode="HTML"
+        )
+        return
+
+    archivo_excel = f"Estado_De_Cuenta_{target_user_id}.xlsx"
+    df.to_excel(archivo_excel, index=False, engine='openpyxl')
+
+    try:
+        with open(archivo_excel, "rb") as doc:
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=doc,
+                filename=f"Estado_De_Cuenta_{target_user_id}.xlsx",
+                caption=f"📄 <b>Estado de Cuenta Individual</b>\nDatos económicos para el usuario <code>{target_user_id}</code>.",
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        logger.error(f"Error enviando documento Excel de usuario: {e}")
+    
+    if os.path.exists(archivo_excel):
+        os.remove(archivo_excel)
+
+
+# --- FLUJO ADMIN: BUSCAR ESTADO DE CUENTA DE UN USUARIO INDIVIDUAL ---
+async def iniciar_buscar_usuario_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not es_administrador(query.from_user.id):
+        await query.answer("❌ Sin autorización.", show_alert=True)
+        return ConversationHandler.END
+
+    await query.message.reply_text(
+        "🔍 <b>Búsqueda de Estado de Cuenta Individual</b>\n\n"
+        "Escribe el <b>ID de Telegram</b> del usuario que deseas consultar:\n"
+        "<i>(/cancelar para anular)</i>",
+        parse_mode="HTML",
+    )
+    return BUSCAR_USUARIO_ADMIN
+
+
+async def recibir_id_usuario_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text.strip()
+    try:
+        target_user_id = int(texto)
+    except ValueError:
+        await update.message.reply_text("⚠️ Por favor, ingresa un ID de Telegram válido en números enteros:")
+        return BUSCAR_USUARIO_ADMIN
+
+    await generar_excel_usuario(update.effective_chat.id, target_user_id, context)
     await start(update, context)
     return ConversationHandler.END
 
 
-async def volver_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- STUB ADMIN DEP CALLBACK EN CASO DE REQUERIRLO ---
+async def admin_dep_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("ℹ️ Función de aprobación de depósitos no provista en el fragmento. Por favor asegurate de tener la lógica aquí.", show_alert=True)
+
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await start(update, context)
+    data = query.data
+    user_id = query.from_user.id
+
+    if data == "menu_wallet":
+        await menu_wallet(update, context)
+
+    elif data == "kyc_no_permitido":
+        await query.answer("⚠️ Debes tener una dirección de billetera registrada previamente para usar el Setteo.", show_alert=True)
+
+    elif data == "menu_referidos":
+        if not usuario_tiene_plan_activo(user_id):
+            texto = (
+                "❌ <b>Link de Referido no disponible</b>\n\n"
+                "Para generar tu enlace de referido y ganar el <b>5% de comisión</b> de las inversiones de tus invitados, "
+                "debes tener al menos un <b>plan de inversión activo</b>."
+            )
+            keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            try:
+                if query.message.photo:
+                    await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
+                else:
+                    await query.message.edit_text(texto, reply_markup=reply_markup, parse_mode="HTML")
+            except Exception:
+                await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
+            return
+
+        bot_username = context.bot.username
+        link_referido = f"https://t.me/{bot_username}?start=ref_{user_id}"
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*), COALESCE(ganancias_referidos, 0.0) FROM usuarios WHERE referido_por = ?", (user_id,))
+        row = cursor.fetchone()
+        total_referidos = row[0] if row else 0
+        ganancias_totales = row[1] if row else 0.0
+        conn.close()
+
+        texto = (
+            "🤝 <b>Sistema de Referidos</b>\n\n"
+            "Invita a nuevos usuarios con tu enlace personal. Recibirás el <b>5% de la inversión</b> de cada persona que se registre y active un depósito.\n"
+            "<i>(Este enlace funciona porque posees planes de inversión activos).</i>\n\n"
+            f"🔗 <b>Tu enlace de referido:</b>\n<code>{link_referido}</code>\n\n"
+            f"📊 <b>Tus Estadísticas de Referidos:</b>\n"
+            f"• Total de referidos invitados: <b>{total_referidos}</b>\n"
+            f"• Ganancias totales por comisiones: <b>${ganancias_totales:.2f} USDT</b>\n\n"
+            "💡 <i>Las comisiones se acreditan de forma automática a tu saldo disponible cuando el administrador aprueba el depósito de tu referido.</i>"
+        )
+        keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        try:
+            if query.message.photo:
+                await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
+            else:
+                await query.message.edit_text(texto, reply_markup=reply_markup, parse_mode="HTML")
+        except Exception:
+            await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
+
+    elif data == "menu_estado_animo":
+        user_row = obtener_datos_usuario(user_id)
+        animo_actual = user_row["estado_animo"] if user_row and user_row["estado_animo"] else "No seleccionado 🔄"
+        
+        text = (
+            "⭐ <b>Calificación y Estado de Ánimo del Proyecto</b>\n\n"
+            f"• Tu estado de ánimo actual: <b>{animo_actual}</b>\n\n"
+            "Selecciona cómo te sientes con respecto al proyecto (puedes cambiarlo cuando quieras):"
+        )
+        keyboard = [
+            [InlineKeyboardButton("🤩 Súper Optimista / Excelente", callback_data="animo_🤩 Súper Optimista")],
+            [InlineKeyboardButton("😊 Satisfecho y Confiado", callback_data="animo_😊 Satisfecho")],
+            [InlineKeyboardButton("😐 Neutral / Expectante", callback_data="animo_😐 Neutral")],
+            [InlineKeyboardButton("😕 Preocupado / Inseguro", callback_data="animo_😕 Preocupado")],
+            [InlineKeyboardButton("😡 Molesto / Insatisfecho", callback_data="animo_😡 Molesto")],
+            [InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        try:
+            if query.message.photo:
+                await query.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+            else:
+                await query.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
+        except Exception:
+            await query.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+
+    elif data.startswith("animo_"):
+        animo_elegido = data.replace("animo_", "")
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE usuarios SET estado_animo = ? WHERE telegram_id = ?", (animo_elegido, user_id))
+        conn.commit()
+        conn.close()
+
+        await query.answer(f"✅ Estado de ánimo actualizado: {animo_elegido}", show_alert=True)
+        await start(update, context)
+
+    elif data == "menu_balance":
+        resumen = obtener_resumen_financiero(user_id)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, monto_inicial, ganancias_acumuladas, tope_ganancia, fecha_activacion FROM inversiones WHERE telegram_id = ? AND estado = 'activa'",
+            (user_id,)
+        )
+        inversiones_activas = cursor.fetchall()
+        conn.close()
+
+        text = "📊 <b>Tu Balance y Planes de Inversión</b>\n\n"
+
+        if resumen["deposito_pendiente"] > 0:
+            text += f"⏳ Depósito pendiente: ${resumen['deposito_pendiente']:.2f} USDT\n"
+
+        if inversiones_activas:
+            text += "📦 <b>Tus planes activos:</b>\n"
+            for inv in inversiones_activas:
+                # Dependiendo si usas sqlite3.Row o no, ajustamos la obtención del valor. Asumo formato dict/row
+                pendiente = inv['tope_ganancia'] - inv['ganancias_acumuladas']
+                text += (
+                    f"🔹 <b>Plan #{inv['id']}</b>\n"
+                    f"   Capital: ${inv['monto_inicial']:.2f} USDT\n"
+                    f"   Ganado: ${inv['ganancias_acumuladas']:.2f} USDT\n"
+                    f"   Pendiente: ${pendiente:.2f} USDT\n"
+                    f"   Activado: {inv['fecha_activacion']}\n"
+                )
+        else:
+            text += "⚠️ No tienes planes de inversión activos.\n"
+
+        text += (
+            f"\n💰 <b>Balance Disponible (Retirable):</b> ${resumen['balance_disponible']:.2f} USDT\n\n"
+            "<i>(Tus ganancias se acumulan de lunes a viernes automáticamente tras 24h del depósito)</i>"
+        )
+        
+        keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="volver_inicio")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        try:
+            if query.message.photo:
+                await query.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+            else:
+                await query.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
+        except Exception:
+            await query.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+
+    elif data == "descargar_mi_excel":
+        await query.message.reply_text("⏳ Generando tu estado de cuenta, por favor espera...", parse_mode="HTML")
+        await generar_excel_usuario(query.message.chat_id, user_id, context)
+
+    elif data == "volver_inicio":
+        await start(update, context)
+
+    elif data == "admin_panel":
+        if es_administrador(user_id):
+            texto = "⚙️ <b>Panel de Control de Administrador</b>\nSelecciona una acción:"
+            keyboard = [
+                [InlineKeyboardButton("🔍 Buscar Usuario por ID", callback_data="admin_buscar_usuario")],
+                [InlineKeyboardButton("📢 Difusión Masiva", callback_data="admin_broadcast_start")],
+                [InlineKeyboardButton("⚡ Ejecutar Contabilidad", callback_data="ejecutar_contabilidad")],
+                [InlineKeyboardButton("📊 Reporte Global (Excel)", callback_data="exportar_excel")],
+                [InlineKeyboardButton("📉 Reporte de Conciliación", callback_data="exportar_conciliacion")],
+                [InlineKeyboardButton("🔙 Volver al Inicio", callback_data="volver_inicio")]
+            ]
+            try:
+                if query.message.photo:
+                    await query.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+                else:
+                    await query.message.edit_text(texto, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+            except Exception:
+                await query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="HTML")
 
 
-async def kyc_no_permitido_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer("⚠️ Debes tener una Wallet registrada previamente para usar el Setteo por KYC.", show_alert=True)
-
-
+# --- FUNCIÓN PRINCIPAL MAIN ---
 def main():
     init_db()
     asegurar_columnas_usuarios()
     asegurar_tabla_kyc()
-
+    
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Handlers de Conversación
-    conv_registro = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_registro, pattern="^iniciar_registro$")],
-        states={
-            NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre)],
-            EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_email)],
-            TELEFONO: [MessageHandler(filters.TEXT & ~filters.COMMAND | filters.CONTACT, recibir_telefono)],
-        },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+    nyse_tz = pytz.timezone('America/New_York')
+    hora_ejecucion = time(hour=17, minute=0, tzinfo=nyse_tz)
+    
+    app.job_queue.run_daily(
+        contabilidad_diaria_job,
+        time=hora_ejecucion,
+        days=(0, 1, 2, 3, 4) 
     )
 
-    conv_deposito = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_deposito_flujo, pattern="^menu_depositar$")],
+    registro_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                iniciar_registro, pattern="^iniciar_registro$"
+            )
+        ],
         states={
-            MONTO_DEP: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_monto_dep)],
-            HASH_DEP: [
-                MessageHandler(filters.PHOTO, recibir_hash_dep),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_hash_dep)
+            NOMBRE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre)
             ],
-            COMPROBANTE_DEP: [MessageHandler(filters.PHOTO, recibir_comprobante_dep)],
+            EMAIL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_email)
+            ],
+            TELEFONO: [
+                MessageHandler(
+                    filters.CONTACT | (filters.TEXT & ~filters.COMMAND),
+                    recibir_telefono,
+                )
+            ],
         },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
     )
 
-    conv_retiro = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_retiro_flujo, pattern="^menu_retirar$")],
+    registro_wallet_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                iniciar_registro_wallet, pattern="^registrar_wallet$"
+            )
+        ],
         states={
-            MONTO_RET: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_monto_ret)],
+            WALLET_DIR: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_wallet_dir)
+            ],
+            WALLET_PIN: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_wallet_pin)
+            ],
         },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
     )
 
-    conv_wallet = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_registro_wallet, pattern="^registrar_wallet$")],
+    cambio_wallet_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                iniciar_cambio_wallet, pattern="^cambiar_wallet$"
+            )
+        ],
         states={
-            WALLET_DIR: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_wallet_dir)],
-            WALLET_PIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_wallet_pin)],
+            CAMBIO_WALLET_PIN: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cambio_wallet_pin)
+            ],
+            CAMBIO_WALLET_DIR: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cambio_wallet_dir)
+            ],
         },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
     )
 
-    conv_cambio_wallet = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_cambio_wallet, pattern="^cambiar_wallet$")],
+    kyc_wallet_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                iniciar_kyc_wallet, pattern="^iniciar_kyc_wallet$"
+            )
+        ],
         states={
-            CAMBIO_WALLET_PIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cambio_wallet_pin)],
-            CAMBIO_WALLET_DIR: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_cambio_wallet_dir)],
+            KYC_WALLET_DIR: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_kyc_wallet_dir)
+            ],
+            KYC_NOMBRE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_kyc_nombre)
+            ],
+            KYC_FOTO: [
+                MessageHandler(filters.PHOTO & ~filters.COMMAND, recibir_kyc_foto)
+            ],
         },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
     )
 
-    conv_kyc_wallet = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_kyc_wallet, pattern="^iniciar_kyc_wallet$")],
+    deposito_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                iniciar_deposito_flujo, pattern="^menu_depositar$"
+            )
+        ],
         states={
-            KYC_WALLET_DIR: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_kyc_wallet_dir)],
-            KYC_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_kyc_nombre)],
-            KYC_FOTO: [MessageHandler(filters.PHOTO, recibir_kyc_foto)],
+            MONTO_DEP: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_monto_dep)
+            ],
+            # IMPORTANTE: Aquí está la corrección que pide la consola para el filtro OR (|)
+            HASH_DEP: [
+                MessageHandler(
+                    (filters.TEXT | filters.PHOTO) & ~filters.COMMAND, recibir_hash_dep
+                )
+            ],
+            COMPROBANTE_DEP: [
+                MessageHandler(
+                    filters.PHOTO & ~filters.COMMAND, recibir_comprobante_dep
+                )
+            ],
         },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
     )
 
-    conv_buscar_usuario = ConversationHandler(
-        entry_points=[CallbackQueryHandler(admin_buscar_usuario_inicio, pattern="^admin_buscar_usuario_inicio$")],
+    retiro_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                iniciar_retiro_flujo, pattern="^menu_retirar$"
+            )
+        ],
         states={
-            BUSCAR_USUARIO_ADMIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_recibir_busqueda_usuario)],
+            MONTO_RET: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_monto_ret)
+            ]
         },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
     )
-
-    conv_admin_retiro = ConversationHandler(
-        entry_points=[CallbackQueryHandler(admin_retiro_callback, pattern="^admin_ret_(aprobar|rechazar)_.*$")],
+    
+    admin_retiro_flujo_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(admin_retirar_iniciar, pattern="^admin_ret_(ok|no)_")
+        ],
         states={
-            ADMIN_RET_APROBAR_COMPROBANTE: [MessageHandler(filters.PHOTO, admin_recibir_comprobante_retiro)],
-            ADMIN_RET_OTRO_MOTIVO: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_recibir_motivo_rechazo_retiro)],
+            ADMIN_RET_APROBAR_COMPROBANTE: [
+                MessageHandler(filters.PHOTO & ~filters.COMMAND, admin_retirar_recibir_comprobante)
+            ],
+            ADMIN_RET_OTRO_MOTIVO: [
+                CallbackQueryHandler(admin_retirar_motivo_callback, pattern="^admin_motivo_"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_retirar_recibir_motivo_manual)
+            ]
         },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
     )
 
-    conv_broadcast = ConversationHandler(
-        entry_points=[CallbackQueryHandler(admin_broadcast_inicio, pattern="^admin_broadcast_inicio$")],
+    admin_buscar_usuario_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(
+                iniciar_buscar_usuario_admin, pattern="^admin_buscar_usuario$"
+            )
+        ],
+        states={
+            BUSCAR_USUARIO_ADMIN: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_id_usuario_admin)
+            ],
+        },
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
+    )
+    
+    admin_broadcast_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(iniciar_broadcast_admin, pattern="^admin_broadcast_start$")
+        ],
         states={
             ADMIN_BROADCAST: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_ejecutar_broadcast),
-                MessageHandler(filters.PHOTO, admin_ejecutar_broadcast)
+                MessageHandler(filters.ALL & ~filters.COMMAND, procesar_broadcast_admin)
             ],
         },
-        fallbacks=[CommandHandler("cancelar", cancelar)],
+        fallbacks=[CommandHandler("cancelar", cancelar_operacion)],
     )
 
-    # Registrar handlers
+    # Añadir los CommandHandlers iniciales
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(conv_registro)
-    app.add_handler(conv_deposito)
-    app.add_handler(conv_retiro)
-    app.add_handler(conv_wallet)
-    app.add_handler(conv_cambio_wallet)
-    app.add_handler(conv_kyc_wallet)
-    app.add_handler(conv_buscar_usuario)
-    app.add_handler(conv_admin_retiro)
-    app.add_handler(conv_broadcast)
+    
+    # Añadir todos los ConversationHandlers
+    app.add_handler(registro_handler)
+    app.add_handler(registro_wallet_handler)
+    app.add_handler(cambio_wallet_handler)
+    app.add_handler(kyc_wallet_handler)
+    app.add_handler(deposito_handler)
+    app.add_handler(retiro_handler)
+    app.add_handler(admin_retiro_flujo_handler)
+    app.add_handler(admin_buscar_usuario_handler)
+    app.add_handler(admin_broadcast_handler)
 
-    # Callbacks generales
-    app.add_handler(CallbackQueryHandler(volver_inicio, pattern="^volver_inicio$"))
-    app.add_handler(CallbackQueryHandler(menu_wallet, pattern="^menu_wallet$"))
-    app.add_handler(CallbackQueryHandler(menu_balance, pattern="^menu_balance$"))
-    app.add_handler(CallbackQueryHandler(menu_referidos, pattern="^menu_referidos$"))
-    app.add_handler(CallbackQueryHandler(menu_estado_animo, pattern="^menu_estado_animo$"))
-    app.add_handler(CallbackQueryHandler(registrar_estado_animo_callback, pattern="^animo_.*$"))
-    app.add_handler(CallbackQueryHandler(descargar_mi_excel, pattern="^descargar_mi_excel$"))
-    app.add_handler(CallbackQueryHandler(kyc_no_permitido_callback, pattern="^kyc_no_permitido$"))
+    # Añadir CallbackQueryHandlers dedicados y de admin antes del bloqueador global
+    app.add_handler(CallbackQueryHandler(admin_kyc_callback, pattern="^admin_kyc_"))
+    app.add_handler(CallbackQueryHandler(ejecutar_contabilidad, pattern="^ejecutar_contabilidad$"))
+    app.add_handler(CallbackQueryHandler(exportar_excel, pattern="^exportar_excel$"))
+    app.add_handler(CallbackQueryHandler(exportar_conciliacion, pattern="^exportar_conciliacion$"))
+    
+    # Handler para aprobaciones de depósitos en caso de requerirse en este archivo
+    app.add_handler(CallbackQueryHandler(admin_dep_callback, pattern="^admin_dep_"))
 
-    # Callbacks de Admin
-    app.add_handler(CallbackQueryHandler(admin_panel_callback, pattern="^admin_panel$"))
-    app.add_handler(CallbackQueryHandler(admin_toggle_feature, pattern="^admin_toggle_.*$"))
-    app.add_handler(CallbackQueryHandler(admin_resumen_global, pattern="^admin_resumen_global$"))
-    app.add_handler(CallbackQueryHandler(admin_ejecutar_rendimiento_manual, pattern="^admin_ejecutar_rendimiento$"))
-    app.add_handler(CallbackQueryHandler(admin_deposito_callback, pattern="^admin_dep_(ok|no)_.*$"))
-    app.add_handler(CallbackQueryHandler(admin_kyc_callback, pattern="^admin_kyc_(ok|no)_.*$"))
+    # Finalmente, el CallbackQueryHandler que sirve de atrapalotodo (Catch-All) para el menú
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🤖 Bot iniciado correctamente...")
+    logger.info("Bot en ejecución...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
