@@ -2,3 +2,5 @@ python-telegram-bot
 flask
 pandas
 requests
+pytz
+openpyxl
