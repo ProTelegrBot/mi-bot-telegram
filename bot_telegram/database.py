@@ -1,3 +1,16 @@
+import os
+import psycopg2
+import sqlite3
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+def get_connection():
+    if DATABASE_URL:
+        # Conexión a PostgreSQL en la nube (Render)
+        return psycopg2.connect(DATABASE_URL, sslmode='require')
+    else:
+        # Conexión local de respaldo (SQLite)
+        return sqlite3.connect('contabilidad.db')
 import sqlite3
 from datetime import datetime
 
