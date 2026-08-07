@@ -4,3 +4,4 @@ pandas
 requests
 pytz
 openpyxl
+psycopg2-binary
