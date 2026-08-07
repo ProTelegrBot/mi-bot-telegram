@@ -1,0 +1,19 @@
+# config.py
+TOKEN = "8811470204:AAEKj_Dy1TgugNi3--1WopkN4Pu_BkWuQyc"
+
+ADMIN_ID = 961507540
+
+DEPOSIT_NETWORK = "BEP-20 (USDT)"
+WALLET_ADDRESS = "0x3F19BB64F102c946AEF21DfA7D7b87F4652EC887"
+
+TOKEN = "8811470204:AAHOC3NRQogk792ZW3dlCzw653V3ond5HDE"
+
+ADMIN_ID = 961507540
+
+# Configuración de correo compatible con main.py
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SMTP_USER = "oriesnel1994@gmail.com"
+SMTP_PASSWORD = "dzvgtpdjagkpguqa"
+
+COMISION_RETIRO = 1.3
