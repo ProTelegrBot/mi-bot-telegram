@@ -113,32 +113,37 @@ def es_administrador(user_id: int) -> bool:
 
 
 def asegurar_columnas_usuarios():
-    """Asegura que las columnas de wallet, pin, estado_animo, referido_por y ganancias_referidos existan en la tabla usuarios."""
+    """Asegura que las columnas necesarias existan en la tabla usuarios."""
     conn = get_db()
     cursor = conn.cursor()
+    
     try:
         cursor.execute("ALTER TABLE usuarios ADD COLUMN wallet TEXT")
     except sqlite3.OperationalError:
         pass
+        
     try:
         cursor.execute("ALTER TABLE usuarios ADD COLUMN pin TEXT")
     except sqlite3.OperationalError:
         pass
+        
     try:
         cursor.execute("ALTER TABLE usuarios ADD COLUMN estado_animo TEXT")
     except sqlite3.OperationalError:
         pass
+        
     try:
         cursor.execute("ALTER TABLE usuarios ADD COLUMN referido_por INTEGER")
     except sqlite3.OperationalError:
         pass
+        
     try:
         cursor.execute("ALTER TABLE usuarios ADD COLUMN ganancias_referidos REAL DEFAULT 0.0")
     except sqlite3.OperationalError:
         pass
+        
     conn.commit()
     conn.close()
-
 
 def asegurar_tabla_kyc():
     """Crea la tabla para las solicitudes KYC de recuperación de wallet."""
