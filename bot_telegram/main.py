@@ -156,7 +156,7 @@ def asegurar_tabla_kyc():
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS kyc_wallets (
-            id SERIAL PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             telegram_id INTEGER,
             nueva_wallet TEXT,
             nombre_kyc TEXT,
