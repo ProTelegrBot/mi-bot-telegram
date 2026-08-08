@@ -128,7 +128,7 @@ def init_db():
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS transacciones (
-                id BIGINT PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 telegram_id INTEGER,
                 tipo TEXT CHECK(tipo IN ('deposito', 'retiro')),
                 monto REAL DEFAULT 0.0,
