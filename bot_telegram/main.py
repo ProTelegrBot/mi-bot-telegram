@@ -148,6 +148,7 @@ def asegurar_columnas_usuarios():
         conn.rollback()
         
     cursor.close()
+    conn.close()
 
 def asegurar_tabla_kyc():
     """Crea la tabla para las solicitudes KYC de recuperación de wallet."""
